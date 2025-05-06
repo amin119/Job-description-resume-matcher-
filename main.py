@@ -77,12 +77,10 @@ def matcher():
             return render_template('matchresume.html', 
                                 error="Could not process any resumes (supported formats: PDF, DOCX, TXT).")
         
-        # Sort by score (highest first)
         results.sort(key=lambda x: x['score'], reverse=True)
         
-        return render_template('matchresume.html',
-                            results=results,
-                            success="Matching completed successfully!")
+        # Pass the results to the template
+        return render_template('matchresume.html', results=results, message="Top matching resumes")
     
     return render_template('matchresume.html')
 
