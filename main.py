@@ -1,7 +1,7 @@
 from flask import Flask, request, render_template
 import os
-import PyPDF2
 import docx2txt
+import PyPDF2
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -13,13 +13,13 @@ def extract_text_from_pdf(file_path):
     with open(file_path, 'rb') as file:
         reader = PyPDF2.PdfReader(file)
         for page in reader.pages:
-            text += page.extract_text() if page.extract_text() else ""
+            text += page.extract_text()
     return text
 
 def extract_text_from_docx(file_path):
     return docx2txt.process(file_path)
 
-def extract_text_from_text(file_path):
+def extract_text_from_txt(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
         return file.read()
 
@@ -29,59 +29,45 @@ def extract_text(file_path):
     elif file_path.endswith('.docx'):
         return extract_text_from_docx(file_path)
     elif file_path.endswith('.txt'):
-        return extract_text_from_text(file_path)
+        return extract_text_from_txt(file_path)
     else:
-        return None
+        return ""
 
-@app.route('/')
+@app.route("/")
 def matchresume():
     return render_template('matchresume.html')
 
-@app.route("/matcher", methods=['GET','POST'])
+@app.route('/matcher', methods=['POST'])
 def matcher():
     if request.method == 'POST':
-        job_description = request.form.get('job_description')
+        job_description = request.form['job_description']
         resume_files = request.files.getlist('resumes')
-        
-        # Validate inputs
-        if not job_description or not resume_files or all(f.filename == '' for f in resume_files):
-            return render_template('matchresume.html', 
-                                error="Please provide both a job description and at least one resume file.")
-        
-        # Process files
-        results = []
+
+        resumes = []
         for resume_file in resume_files:
-            if resume_file.filename == '':
-                continue
-                
-            # Save file
             filename = os.path.join(app.config['UPLOAD_FOLDER'], resume_file.filename)
             resume_file.save(filename)
-            
-            # Extract text
-            text = extract_text(filename)
-            if not text:
-                continue
-                
-            # Calculate similarity
-            vectorizer = TfidfVectorizer().fit_transform([job_description, text])
-            vectors = vectorizer.toarray()
-            similarity = cosine_similarity([vectors[0]], [vectors[1]])[0][0]
-            
-            results.append({
-                'filename': resume_file.filename,
-                'score': round(similarity * 100, 2)
-            })
-        
-        if not results:
-            return render_template('matchresume.html', 
-                                error="Could not process any resumes (supported formats: PDF, DOCX, TXT).")
-        
-        results.sort(key=lambda x: x['score'], reverse=True)
-        
-        # Pass the results to the template
-        return render_template('matchresume.html', results=results, message="Top matching resumes")
-    
+            resumes.append(extract_text(filename))
+
+        if not resumes or not job_description:
+            return render_template('matchresume.html', message="Please upload resumes and enter a job description.")
+
+        # Vectorize job description and resumes
+        vectorizer = TfidfVectorizer().fit_transform([job_description] + resumes)
+        vectors = vectorizer.toarray()
+
+        # Calculate cosine similarities
+        job_vector = vectors[0]
+        resume_vectors = vectors[1:]
+        similarities = cosine_similarity([job_vector], resume_vectors)[0]
+
+        # Get top 3 resumes and their similarity scores
+        top_indices = similarities.argsort()[-5:][::-1]
+        top_resumes = [resume_files[i].filename for i in top_indices]
+        similarity_scores = [round(similarities[i], 2) for i in top_indices]
+
+        return render_template('matchresume.html', message="Top matching resumes:", top_resumes=top_resumes, similarity_scores=similarity_scores)
+
     return render_template('matchresume.html')
 
 if __name__ == '__main__':
